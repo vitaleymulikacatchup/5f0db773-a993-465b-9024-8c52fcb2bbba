@@ -479,7 +479,32 @@ export default function RootLayout({
     const elementType = getElementType(element);
     return elementType === 'Button';
   };
-  
+
+  const updateButtonText = (element, newText) => {
+    const textNodes = [];
+    const walker = document.createTreeWalker(
+      element,
+      NodeFilter.SHOW_TEXT,
+      null
+    );
+
+    let node;
+    while (node = walker.nextNode()) {
+      if (node.textContent && node.textContent.trim()) {
+        textNodes.push(node);
+      }
+    }
+
+    if (textNodes.length > 0) {
+      textNodes[0].textContent = newText;
+      for (let i = 1; i < textNodes.length; i++) {
+        textNodes[i].textContent = '';
+      }
+    } else {
+      element.textContent = newText;
+    }
+  };
+
   const makeEditable = (element, clickEvent) => {
     if (!isTextElement(element)) return;
     
@@ -685,6 +710,9 @@ export default function RootLayout({
   const handleMouseOver = (e) => {
     if (!isActive) return;
 
+    lastMouseX = e.clientX;
+    lastMouseY = e.clientY;
+
     const target = getMostSpecificElement(e.clientX, e.clientY) || e.target;
 
     if (!isValidElement(target) || target === hoveredElement || target === selectedElement) {
@@ -839,6 +867,9 @@ export default function RootLayout({
     }
   };
   
+  let lastMouseX = 0;
+  let lastMouseY = 0;
+
   const handleScroll = () => {
     if (!isActive) return;
     if (selectedElement) {
@@ -849,13 +880,13 @@ export default function RootLayout({
         delete selectedElement.dataset.webildOriginalPosition;
       }
       selectedElement = null;
-      
+
       window.parent.postMessage({
         type: 'webild-element-selected',
         data: null
       }, '*');
     }
-    
+
     if (hoveredElement) {
       hoveredElement.classList.remove(hoverClass);
       if (hoveredElement.dataset.webildOriginalPosition) {
@@ -863,26 +894,52 @@ export default function RootLayout({
         delete hoveredElement.dataset.webildOriginalPosition;
       }
       hoveredElement = null;
-      
+
       window.parent.postMessage({
         type: 'webild-element-hover',
         data: null
       }, '*');
     }
-    
+
     removeHoverOverlay();
     removeElementTypeLabel();
-    
+
     isScrolling = true;
-    
+
     if (scrollTimeout) {
       clearTimeout(scrollTimeout);
     }
-    
+
     scrollTimeout = setTimeout(() => {
       isScrolling = false;
+
+      if (lastMouseX > 0 && lastMouseY > 0) {
+        const target = getMostSpecificElement(lastMouseX, lastMouseY);
+        if (target && isValidElement(target) && target !== selectedElement) {
+          hoveredElement = target;
+
+          const computedStyle = window.getComputedStyle(target);
+          const currentPosition = computedStyle.position;
+
+          if (currentPosition === 'static' || currentPosition === '') {
+            hoveredElement.dataset.webildOriginalPosition = currentPosition || 'none';
+            hoveredElement.style.position = 'relative';
+          }
+
+          hoveredElement.classList.add(hoverClass);
+          hoverOverlay = createHoverOverlay(target);
+
+          const elementType = getElementType(target);
+          showElementTypeLabel(target, elementType);
+
+          window.parent.postMessage({
+            type: 'webild-element-hover',
+            data: getElementInfo(target, false)
+          }, '*');
+        }
+      }
     }, 150);
-    
+
     window.parent.postMessage({
       type: 'webild-iframe-scroll'
     }, '*');
@@ -965,6 +1022,45 @@ export default function RootLayout({
       return;
     }
 
+    if (e.data.type === 'webild-cancel-changes') {
+      try {
+        const storageKey = getStorageKey();
+        const savedChanges = localStorage.getItem(storageKey);
+        if (savedChanges) {
+          const changes = JSON.parse(savedChanges);
+          changes.forEach(change => {
+            try {
+              const element = document.querySelector(change.selector);
+              if (!element) return;
+
+              if (change.type === 'updateText') {
+                if (isTextElement(element)) {
+                  element.textContent = change.oldValue;
+                }
+              } else if (change.type === 'updateButton') {
+                if (isButtonElement(element)) {
+                  updateButtonText(element, change.oldValue);
+                }
+              } else if (change.type === 'replaceImage') {
+                const isBackground = element.tagName.toLowerCase() !== 'img';
+                if (isBackground) {
+                  element.style.backgroundImage = change.oldValue ? 'url(' + change.oldValue + ')' : '';
+                } else {
+                  element.src = change.oldValue;
+                }
+              }
+            } catch (err) {
+              console.warn('[Webild] Failed to revert change:', err);
+            }
+          });
+        }
+        clearLocalChanges();
+      } catch (error) {
+        console.error('[Webild] Failed to cancel changes:', error);
+      }
+      return;
+    }
+
     if (e.data.type === 'webild-update-text') {
       const { selector, newValue, oldValue, sectionId } = e.data.data;
       try {
@@ -981,13 +1077,13 @@ export default function RootLayout({
           }
         }
         
-        if (!element && oldValue && oldValue.trim() && sectionId) {
+        if (!element && sectionId) {
           const sectionElement = document.querySelector('[data-section="' + sectionId + '"]');
           if (sectionElement) {
             const textElements = sectionElement.querySelectorAll('h1, h2, h3, h4, h5, h6, p, span, a, button, div');
             for (let i = 0; i < textElements.length; i++) {
               const el = textElements[i];
-              if (isTextElement(el) && el.textContent.trim() === oldValue.trim()) {
+              if (isTextElement(el) && el.textContent.trim() === (oldValue || '').trim()) {
                 element = el;
                 const newSelector = getUniqueSelector(element, true);
                 if (newSelector) {
@@ -1031,7 +1127,7 @@ export default function RootLayout({
         const element = document.querySelector(selector);
         if (element && isButtonElement(element)) {
           if (text !== undefined) {
-            element.textContent = text;
+            updateButtonText(element, text);
           }
           if (href !== undefined) {
             if (element.tagName.toLowerCase() === 'a') {
