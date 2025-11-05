@@ -47,7 +47,7 @@ export default function Home() {
           description="Professional track and field athlete dedicated to pushing the boundaries of athletic performance and inspiring the next generation of runners"
           tag="Track & Field Athlete"
           tagIcon={Zap}
-          imageSrc="https://webuild-dev.s3.eu-north-1.amazonaws.com/users/user_32m5rRdd38TAyU0DZCqvrl288SF/uploaded-1761834046623-pb3vahrj.jpg"
+          imageSrc="https://images.pexels.com/photos/66898/elephant-cub-tsavo-kenya-66898.jpeg?auto=compress&cs=tinysrgb&h=650&w=940"
           imageAlt="Focused athlete in starting position on a sunny track field, ready to sprint."
           buttons={[
             {
